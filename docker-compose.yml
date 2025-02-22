@@ -1,37 +1,33 @@
 version: "3.8"
 
-networks:
-  malware_network:  # Custom bridge network
-    driver: bridge
-
 services:
   backend:
+    container_name: malware-scanner-backend
     build:
       context: ./backend
-      dockerfile: Dockerfile  # Ensure this file exists
-    container_name: malware-scanner-backend
+      dockerfile: dockerfile
     ports:
       - "8000:8000"
     volumes:
-      - ./backend/scans:/app/scans  # Persistent storage for scan results
-      - ./backend/incoming:/app/incoming  # Persistent storage for uploaded files
-    environment:
-      - UVICORN_CMD=uvicorn
-      - HOST=0.0.0.0
-      - PORT=8000
+      - ./incoming:/app/incoming
+      - ./scans:/app/scans
     networks:
       - malware_network
     restart: always
 
   frontend:
+    container_name: malware-scanner-frontend
     build:
       context: ./frontend
-      dockerfile: Dockerfile  # Ensure this file exists
-    container_name: malware-scanner-frontend
+      dockerfile: dockerfile
     ports:
-      - "3000:80"  # Ensure Nginx serves on port 80 internally
+      - "80:80"
     depends_on:
       - backend
     networks:
       - malware_network
     restart: always
+
+networks:
+  malware_network:
+    driver: bridge

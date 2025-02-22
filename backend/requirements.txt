@@ -1,4 +1,5 @@
 fastapi
 uvicorn
 yara-python
+aiofiles
 python-multipart
