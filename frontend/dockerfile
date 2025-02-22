@@ -1,0 +1,28 @@
+# Use Node.js as a base image
+FROM node:18-alpine AS builder
+
+# Set working directory inside the container
+WORKDIR /app
+
+COPY package.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy the rest of the frontend files
+COPY . .
+
+# Build the frontend
+RUN npm run build
+
+# Use Nginx to serve the built frontend
+FROM nginx:alpine
+
+# Copy build output to Nginx's default HTML directory
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# Expose port 80 for the frontend
+EXPOSE 80
+
+# Start Nginx
+CMD ["nginx", "-g", "daemon off;"]
