@@ -1,76 +1,170 @@
+# -*- coding: utf-8 -*-
+
+import sys
+import os
 import yara
-import magic
+import logging
+import traceback
+import codecs
+import re
 
-# 🔍 Threat Weights (Assign risk scores)
-THREAT_WEIGHTS = {
-    "virtualalloc": 20, "writeprocessmemory": 25, "createremotethread": 30,
-    "loadlibrary": 10, "getprocaddress": 10, "ntunmapviewofsection": 25,
-    "runkey": 15, "task_scheduler": 20, "wmic": 15,
-    "ransom_extension": 30, "ransom_note": 40, "crypto_api": 50,
-    "http": 10, "https": 10, "dns": 15, "useragent": 15,
-    "getasynckeystate": 20, "cred_dump": 35, "clipboard": 10,
-    "shellcode1": 50, "shellcode2": 50,
-    "pdf_javascript": 30, "pdf_launch": 40, "pdf_cmd": 35, "pdf_exploit": 45,
-    "image_exif": 10, "image_base64": 20
-}
+# Directories for rules, IOCs, and files to scan
+YARA_RULE_DIRECTORIES = [r'./yara']
+FILENAME_IOC_DIRECTORY = r'./iocs'
+SCAN_DIRECTORY = r'./scans'
+SIGNATURE_FILE = r'./file-type-signatures.txt'
+# Maximum possible harmful score
+MAX_POSSIBLE_SCORE = 100  
+def load_file_signatures():
+    """Load file-type signatures from the signature-base list."""
+    signatures = {}
+    try:
+        with open(SIGNATURE_FILE, "r", encoding="utf-8") as file:
+            for line in file:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                
+                parts = line.split(";")
+                if len(parts) < 2:
+                    continue
+                
+                signature = parts[0].strip().replace(" ", "").upper()  # Normalize hex format
+                file_type = parts[1].strip()
+                signatures[signature] = file_type
 
-# 📌 Load YARA rules for different file types
-rules = {
-    "exe": yara.compile(filepath="exe_rules.yar"),
-    "pdf": yara.compile(filepath="pdf_rules.yar"),
-    "image": yara.compile(filepath="image_rules.yar")
-}
+        logging.info(f"Loaded {len(signatures)} file-type signatures.")
+    except FileNotFoundError:
+        logging.error("Signature file not found!")
+    except Exception as e:
+        logging.error(f"Error loading signatures: {e}")
 
-# 🔍 Detect file type
-def detect_file_type(file_path):
-    mime = magic.Magic(mime=True)
-    return mime.from_file(file_path)
+    return signatures
 
-# 🛠 Calculate threat percentage
-def calculate_threat_score(matches):
-    total_score = 0
-    max_possible_score = sum(THREAT_WEIGHTS.values())
-
-    for match in matches:
-        for string_match in match.strings:
-            name = string_match.identifier.lower()  # Convert to lowercase
-            print(f"✅ Matched String: {name}")  # Debug print
-            
-            if name in THREAT_WEIGHTS:
-                total_score += THREAT_WEIGHTS[name]
-
-    # Prevent 0% when something is detected
-    if total_score == 0 and matches:
-        return 1.0
-
-    threat_percentage = (total_score / max_possible_score) * 100 if total_score > 0 else 0
-    return round(threat_percentage, 2)
-
-# 🚀 Scan file
-def scan_file(file_path):
-    file_type = detect_file_type(file_path)
+def get_file_magic_bytes(file_path, num_bytes=16):
+    """Extract first few bytes of a file as a hex string."""
+    try:
+        with open(file_path, "rb") as file:
+            magic_bytes = file.read(num_bytes)
+            return magic_bytes.hex().upper()  # Convert to uppercase hex
+    except Exception as e:
+        logging.error(f"Error reading file {file_path}: {e}")
+        return None
     
-    if "pdf" in file_type:
-        rule = rules["pdf"]
-    elif "x-dosexec" in file_type:  # EXE file
-        rule = rules["exe"]
-    elif "image" in file_type:
-        rule = rules["image"]
-    else:
-        print(f"⚠️ Unsupported file type: {file_type}")
-        return "Unknown file type"
+def walk_error(err):
+    """Handle directory walk errors."""
+    try:
+        if "Error 3" in str(err):
+            logging.error("Directory walk error")
+            sys.exit(1)
+    except UnicodeError:
+        print("Unicode decode error in walk error message")
+        sys.exit(1)
 
-    matches = rule.match(file_path)
+def initialize_yara_rules():
+    """Compile and load YARA rules."""
+    yara_rules = {}
+    try:
+        for yara_rule_directory in YARA_RULE_DIRECTORIES:
+            if not os.path.exists(yara_rule_directory):
+                continue
+            for root, _, files in os.walk(yara_rule_directory, onerror=walk_error, followlinks=False):
+                for file in files:
+                    yara_rule_file = os.path.join(root, file)
+                    if file.startswith((".", "~", "_")):
+                        continue
+                    try:
+                        compiled_rules = yara.compile(yara_rule_file, externals={
+                            'filename': '',
+                            'filepath': '',
+                            'extension': '',
+                            'filetype': '',
+                            'md5': ''
+                        })
+                        yara_rules[file] = compiled_rules
+                        logging.info(f"Loaded YARA rule: {file}")
+                    except yara.SyntaxError:
+                        logging.error(f"Syntax error in YARA rule: {yara_rule_file}")
+                        traceback.print_exc()
+    except Exception as e:
+        logging.error(f"Unexpected error while loading YARA rules: {e}")
+        traceback.print_exc()
+    return yara_rules
 
-    if matches:
-        threat_level = calculate_threat_score(matches)
-        print(f"⚠️ MALICIOUS FILE DETECTED ({threat_level}% THREAT LEVEL)")
-        return f"Malicious ({threat_level}%)"
-    else:
-        print(f"✅ File is clean ({file_type})")
-        return "Clean"
+def initialize_filename_iocs():
+    """Compile regex-based filename IOCs."""
+    filename_iocs = []
+    try:
+        for ioc_filename in os.listdir(FILENAME_IOC_DIRECTORY):
+            if 'filename' in ioc_filename.lower():
+                logging.info(f"Compiling Filename IOCs from {ioc_filename}")
+                with codecs.open(os.path.join(FILENAME_IOC_DIRECTORY, ioc_filename), 'r', encoding='utf-8') as file:
+                    for line in file:
+                        line = line.strip()
+                        if not line or line.startswith("#"):
+                            continue
+                        try:
+                            cleaned_regex = re.sub(r"\(\?i\)", "", line)  # Remove misplaced (?i)
+                            cleaned_regex = f"(?i){cleaned_regex}"  # Ensure (?i) is at the start
+                            filename_iocs.append(re.compile(cleaned_regex))
+                        except re.error as e:
+                            logging.warning(f"Skipping invalid regex: {line} | Error: {e}")
+    except FileNotFoundError:
+        logging.error("IOC directory not found!")
+    except Exception as e:
+        logging.error(f"Error reading IOC file: {e}")
+    return filename_iocs
 
-# 🔍 Test File
-file_to_scan = "suspicious_file.exe"  # Change to your test file
-result = scan_file(file_to_scan)
-print(f"🔎 Scan Result: {result}")
+def scan_file(file_path, yara_rules, filename_iocs):
+    """Scan a file for threats using YARA rules and filename IOCs."""
+    file_name = os.path.basename(file_path)
+    harmful_score = 0
+    # File-Type Signature Matching
+    magic_bytes = get_file_magic_bytes(file_path)
+    if magic_bytes:
+        for signature, file_type in file_signatures.items():
+            if magic_bytes.startswith(signature):  # Check if file matches known signature
+                logging.info(f"File {file_name} detected as {file_type} (Signature: {signature})")
+                if file_type.lower() in ["exe", "dll", "vbs", "scr", "bat"]:  # Potentially dangerous types
+                    harmful_score += 15  # Increase harmful score for risky types
+                break
+
+    # YARA Scan
+    match_count = 0
+    for rule_name, rule in yara_rules.items():
+        try:
+            matches = rule.match(file_path)
+            if matches:
+                match_count += len(matches)
+                harmful_score += len(matches) * 10  # Each match contributes +10
+        except Exception as e:
+            logging.error(f"Error scanning {file_name} with rule {rule_name}: {e}")
+
+    # Filename IOC Match
+    for ioc in filename_iocs:
+        if ioc.search(file_name):
+            harmful_score += 20  # Filename match adds +20
+            break
+
+    # Calculate Harmfulness %
+    harmfulness_percentage = min((harmful_score / MAX_POSSIBLE_SCORE) * 100, 100)
+
+    # Determine Verdict
+    verdict = "Malicious" if harmfulness_percentage > 50 else "Clean"
+
+    print(f"File: {file_name} | Harmfulness: {harmfulness_percentage:.2f}% | Verdict: {verdict}")
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
+    
+    yara_rules = initialize_yara_rules()
+    filename_iocs = initialize_filename_iocs()
+    file_signatures = load_file_signatures()
+    
+    if not os.path.exists(SCAN_DIRECTORY):
+        os.makedirs(SCAN_DIRECTORY)
+
+    for file in os.listdir(SCAN_DIRECTORY):
+        file_path = os.path.join(SCAN_DIRECTORY, file)
+        if os.path.isfile(file_path):
+            scan_file(file_path, yara_rules, filename_iocs)

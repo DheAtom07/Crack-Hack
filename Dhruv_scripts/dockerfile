@@ -1,0 +1,28 @@
+# Use official Python image as base
+FROM python:3.9
+
+# Install system dependencies for YARA and build tools
+RUN apt-get update && apt-get install -y \
+    yara \
+    libyara-dev \
+    build-essential \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*  # Clean up to reduce image size
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Copy all project files into the container
+COPY . .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir yara-python fastapi uvicorn
+
+# Ensure the `/scans` directory exists inside the container
+RUN mkdir -p /scans
+
+# Expose port 8000 for API access
+EXPOSE 8000
+
+# Run the FastAPI app
+CMD ["uvicorn", "api_server:app", "--host", "0.0.0.0", "--port", "8000"]
