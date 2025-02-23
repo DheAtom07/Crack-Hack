@@ -1,11 +1,62 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>Malware Scanner</title>
+    <style>
+        body {font-family: Arial,sans-serif; background-color:#f4f4f4; text-align:center; margin:0; padding:0}
+        .container {width:50%; margin:50px auto; background:#fff; padding:20px; border-radius:10px; box-shadow:0 0 10px rgba(0,0,0,.1)}
+        h1 {color: #333}
+        input[type=file] {margin:20px 0}
+        button {background-color:#28a745; color:#fff; border:none; padding:10px 15px; cursor:pointer; border-radius:5px; font-size:16px}
+        button:hover {background-color:#218838}
+        #result {margin-top:20px; font-size:18px; font-weight:700; color:#333}
+        .error {color:red}
+    </style>
+    <script defer="defer" src="/static/js/main.2660e846.js"></script>
 </head>
 <body>
-    <div id="root"></div>
+    <div class="container">
+        <h1>Upload a File for Malware Scan</h1>
+        <input type="file" id="fileInput">
+        <button onclick="uploadFile()">Scan File</button>
+        <p id="result"></p>
+    </div>
+    <script>
+        async function uploadFile() {
+            const fileInput = document.getElementById("fileInput"),
+                  result = document.getElementById("result");
+
+            if (fileInput.files.length === 0) {
+                result.innerText = "⚠️ Please select a file!";
+                result.classList.add("error");
+                return;
+            }
+
+            const file = fileInput.files[0];
+
+            const formData = new FormData();
+            formData.append("file", file);
+
+            try {
+                const response = await fetch("http://localhost:8000/upload/", { // ✅ FIXED URL
+                    method: "POST",
+                    body: formData
+                });
+
+                if (!response.ok) throw new Error("File upload failed");
+
+                const data = await response.json();
+                result.innerText = `✅ Scan Result: ${data.verdict}`;
+                result.classList.remove("error");
+
+            } catch (error) {
+                console.error("Error:", error);
+                result.innerText = "❌ Error scanning file.";
+                result.classList.add("error");
+            }
+        }
+    </script>
 </body>
 </html>

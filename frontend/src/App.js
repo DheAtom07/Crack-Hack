@@ -1,8 +1,11 @@
-export default function App() {
-    return (
-      <div>
-        <h1>Malware Scanner Frontend</h1>
-      </div>
-    );
-  }
-  
+import React from "react";
+
+function App() {
+  return (
+    <div>
+      <h1>Welcome to Malware Scanner</h1>
+    </div>
+  );
+}
+
+export default App;
