@@ -1,36 +1,51 @@
-async function uploadFile() {
-    const fileInput = document.getElementById("fileInput"),
-          result = document.getElementById("result");
+import { useState } from "react";
+import BACKEND_URL from "./config"; // Import backend URL
 
-    if (fileInput.files.length === 0) {
-        result.innerText = "⚠️ Please select a file!";
-        result.classList.add("error");
-        return;
+export default function FileUploader() {
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [uploadMessage, setUploadMessage] = useState("");
+
+  const handleFileChange = (event) => {
+    setSelectedFile(event.target.files[0]);
+  };
+
+  const handleUpload = async () => {
+    if (!selectedFile) {
+      setUploadMessage("Please select a file first.");
+      return;
     }
-
-    const file = fileInput.files[0];
 
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", selectedFile);
 
     try {
-        const response = await fetch("http://localhost:8000/upload/", {  // ✅ Fixed URL
-            method: "POST",
-            body: formData
-        });
+      const response = await fetch(`${BACKEND_URL}/upload/`, {
+        method: "POST",
+        body: formData,
+      });
 
-        if (!response.ok) throw new Error("File upload failed");
+      if (!response.ok) {
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
 
-        const data = await response.json();
-        result.innerText = `✅ Scan Result: ${data.verdict}`;
-        result.classList.remove("error");
-
+      const data = await response.json();
+      setUploadMessage(data.message || "File uploaded successfully!");
     } catch (error) {
-        console.error("Error:", error);
-        result.innerText = "❌ Error scanning file.";
-        result.classList.add("error");
+      setUploadMessage("Failed to upload file.");
+      console.error("Upload error:", error);
     }
-}
+  };
 
-// Ensure the function is available globally if used in index.html
-window.uploadFile = uploadFile;
+  return (
+    <div className="flex flex-col items-center gap-4 p-5 bg-gray-100 rounded-lg shadow-lg">
+      <input type="file" onChange={handleFileChange} className="border p-2 rounded" />
+      <button
+        onClick={handleUpload}
+        className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700"
+      >
+        Upload File
+      </button>
+      {uploadMessage && <p className="text-gray-700">{uploadMessage}</p>}
+    </div>
+  );
+}

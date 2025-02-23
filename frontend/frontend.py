@@ -20,12 +20,12 @@ export default function FileUploader() {
     formData.append("file", selectedFile);
 
     try {
-      const response = await axios.post(`${BACKEND_URL}/upload/`, formData, {
+      const response = await axios.post(BACKEND_URL, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setUploadMessage(response.data.message);
     } catch (error) {
-      setUploadMessage("Failed to upload file.");
+      setUploadMessage(error.response?.data?.message || "Failed to upload file.");
       console.error("Upload error:", error);
     }
   };
